@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # DBTITLE 1,Title
 # MAGIC %md
 # MAGIC # 04_generation / 01_rag_pipeline
