@@ -83,6 +83,7 @@ print(f"Columns to sync   : {len(COLUMNS_TO_SYNC)} columns")
 # Idempotent: if the endpoint already exists, reuses it.
 
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.errors import NotFound
 from databricks.sdk.service.vectorsearch import EndpointType, EndpointStatusState
 
 w = WorkspaceClient()
@@ -98,7 +99,7 @@ try:
             endpoint_name=ENDPOINT_NAME
         )
         print(f"Endpoint now online — state: {endpoint.endpoint_status.state}")
-except Exception:
+except NotFound:  # ResourceDoesNotExist is a subclass of NotFound
     print(f"Endpoint '{ENDPOINT_NAME}' not found — creating (STANDARD)...")
     endpoint = w.vector_search_endpoints.create_endpoint_and_wait(
         name=ENDPOINT_NAME,
@@ -157,23 +158,16 @@ spark.sql(f"SHOW TBLPROPERTIES {EMBEDDINGS_TABLE}").show(truncate=False)
 #   - The index syncs from the Delta table
 #   - Pipeline type TRIGGERED: sync is manual via sync_index()
 
+from databricks.sdk.errors import NotFound, ResourceAlreadyExists
 from databricks.sdk.service.vectorsearch import (
     VectorIndexType, PipelineType,
     DeltaSyncVectorIndexSpecRequest, EmbeddingVectorColumn
 )
+import time
 
-# Check if index already exists
-try:
-    index = w.vector_search_indexes.get_index(INDEX_NAME)
-    print(f"Index '{INDEX_NAME}' already exists.")
-    print(f"  Ready: {index.status.ready}")
-    index_exists = True
-except Exception:
-    print(f"Index '{INDEX_NAME}' not found — creating...")
-    index_exists = False
-
-if not index_exists:
-    w.vector_search_indexes.create_index(
+def create_delta_sync_index():
+    # NOTE: create_index uses name=; get_index/delete_index/sync_index use index_name=
+    return w.vector_search_indexes.create_index(
         name=INDEX_NAME,
         endpoint_name=ENDPOINT_NAME,
         primary_key=PRIMARY_KEY,
@@ -190,7 +184,42 @@ if not index_exists:
             columns_to_sync=COLUMNS_TO_SYNC
         )
     )
-    print(f"Index '{INDEX_NAME}' creation initiated.")
+
+# Check if index already exists (index_name= keyword — passing 'name=' raises TypeError)
+try:
+    index = w.vector_search_indexes.get_index(index_name=INDEX_NAME)
+    print(f"Index '{INDEX_NAME}' already exists.")
+    print(f"  Ready: {index.status.ready}")
+    index_exists = True
+except NotFound:
+    print(f"Index '{INDEX_NAME}' not found — creating...")
+    index_exists = False
+
+if not index_exists:
+    try:
+        create_delta_sync_index()
+        print(f"Index '{INDEX_NAME}' creation initiated.")
+    except ResourceAlreadyExists:
+        # Orphaned UC entity: the name is registered in Unity Catalog, but the
+        # backing Vector Search object is gone (e.g. the endpoint was deleted
+        # while the index was still being deleted). Self-heal instead of raising:
+        # delete the orphaned registration, wait for it to clear, then recreate.
+        print(f"Index '{INDEX_NAME}' is registered in UC but unreachable (orphaned).")
+        print("Self-healing: deleting orphaned registration, then recreating...")
+        try:
+            w.vector_search_indexes.delete_index(index_name=INDEX_NAME)
+        except NotFound:
+            pass  # UC entity already gone — safe to proceed
+        # Deletion is asynchronous: poll until the name is free (max 5 min)
+        for attempt in range(20):
+            try:
+                w.vector_search_indexes.get_index(index_name=INDEX_NAME)
+                print(f"  still registered (check {attempt + 1}/20), waiting 15s...")
+                time.sleep(15)
+            except NotFound:
+                break
+        create_delta_sync_index()
+        print(f"Orphaned index cleaned up — '{INDEX_NAME}' re-created.")
 
 # COMMAND ----------
 
@@ -212,7 +241,7 @@ poll_interval = 15  # seconds
 print("Phase 1: Waiting for index provisioning...")
 elapsed = 0
 while elapsed < max_wait:
-    index = w.vector_search_indexes.get_index(INDEX_NAME)
+    index = w.vector_search_indexes.get_index(index_name=INDEX_NAME)
     ready = index.status.ready
     message = index.status.message or ""
     print(f"  [{elapsed:3d}s] ready={ready}, message={message}")
@@ -230,12 +259,12 @@ else:
 # --- Phase 2: Trigger sync and wait for data ---
 if index.status.ready:
     print("\nPhase 2: Triggering index sync...")
-    w.vector_search_indexes.sync_index(INDEX_NAME)
+    w.vector_search_indexes.sync_index(index_name=INDEX_NAME)
     print("Sync triggered. Waiting for data to load...")
     
     elapsed = 0
     while elapsed < max_wait:
-        index = w.vector_search_indexes.get_index(INDEX_NAME)
+        index = w.vector_search_indexes.get_index(index_name=INDEX_NAME)
         row_count = index.status.indexed_row_count
         message = index.status.message or ""
         print(f"  [{elapsed:3d}s] indexed_rows={row_count}, message={message}")
@@ -267,7 +296,7 @@ print(f"  Endpoint state : {endpoint.endpoint_status.state}")
 print(f"  Endpoint type  : {endpoint.endpoint_type}")
 
 # Final index check
-index = w.vector_search_indexes.get_index(INDEX_NAME)
+index = w.vector_search_indexes.get_index(index_name=INDEX_NAME)
 print(f"  Index name     : {INDEX_NAME}")
 print(f"  Index ready    : {index.status.ready}")
 print(f"  Indexed rows   : {index.status.indexed_row_count}")
