@@ -1,0 +1,13 @@
+flowchart LR
+    U["User question"] --> H["rag_query - query, top_k=10 deployed"]
+    H --> QE["Query embedding<br>databricks-gte-large-en"]
+    QE --> VS["query_index - civ4_chunks_embeddings_index<br>num_results=10, returns chunks + scores"]
+    VS --> C["Top-10 retrieved chunks<br>chunk_text + 9 metadata columns"]
+    C --> B["build_context - [Source N] blocks<br>title, document_id, chunk_id, source_url, content"]
+    B --> P["build_rag_prompt<br>SYSTEM_PROMPT v1 + CONTEXT + QUESTION"]
+    P --> G["generate_answer<br>databricks-qwen3-next-80b-a3b-instruct<br>temperature 0.1, max_tokens 1024"]
+    G --> A["Grounded answer<br>citing [Source N] labels"]
+    C --> S["build_sources - deduplicated by document_id<br>chunk_ids + scores retained for traceability"]
+    A --> R["Response: answer + references"]
+    S --> R
+    R -. "if context insufficient: refuses to answer<br>instead of fabricating" .-> U

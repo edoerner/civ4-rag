@@ -1,0 +1,15 @@
+flowchart LR
+    PDF["12 strategy PDFs<br>UC Volume"] --> EX["01_extract_and_clean<br>read PDFs, pypdf extract, clean text"]
+    EX --> MERGE["MERGE on document_id<br>idempotent bronze writes"]
+    MERGE --> BRONZE[("civ4_pdf_bronze<br>12 rows, extraction_status SUCCESS<br>page_count, character_count")]
+    CSV["civ4_strategy_metadata.csv<br>9 metadata fields"] --> MV["metadata validation<br>every PDF matched to one record"]
+    BRONZE --> CH["02_metadata_and_chunking<br>join metadata, split 1000/150"]
+    MV --> CH
+    CH --> CHUNKS[("civ4_chunks<br>604 chunks, 14 columns<br>chunk_id = document_id + _chunk_ + 4-digit index")]
+    CHUNKS --> VA["03_validation<br>chunk integrity, metadata completeness,<br>traceability, idempotency"]
+    VA --> GATE{"44 checks"}
+    GATE -->|"PASS / 0 WARNING / 0 ERROR"| READY["READY_FOR_SPRINT_3"]
+    CHUNKS --> EMB["01_embeddings<br>databricks-gte-large-en<br>1024-dim, batch_size=10, MERGE"]
+    EMB --> EMBT[("civ4_chunks_embeddings<br>604 rows, embedding_status SUCCESS")]
+    EMBT --> IDX["02_vector_search<br>endpoint civ4_vs_endpoint, STANDARD<br>Delta Sync index, TRIGGERED"]
+    IDX --> VSI[("civ4_chunks_embeddings_index<br>604 indexed rows, self-managed embeddings")]

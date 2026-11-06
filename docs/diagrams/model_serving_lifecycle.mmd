@@ -1,0 +1,25 @@
+flowchart LR
+    subgraph S5["Sprint 5 - Evaluation with MLflow"]
+        E[("Eval dataset v1-1fd1d9e2<br>24 questions, ground truth")]
+        E --> R1["Retrieval evaluation<br>recall@k, precision@k, MRR"]
+        E --> R2["Generation evaluation<br>5 judges, configs A / B / C"]
+        R1 --> M1["MLflow experiment<br>/Users/.../civ4-rag-evaluation<br>8 runs, params + metrics + artifacts"]
+        R2 --> M1
+        M1 --> SM[("civ4_evaluation_summary<br>Config B pinned for deployment")]
+    end
+
+    subgraph S6["Sprint 6 - Packaging, registration, deployment"]
+        PYF["Civ4RagModel - MLflow PyFunc<br>pinned Config B + I/O signature<br>code_paths ships rag_utils.py"]
+        LOG["MLflow run f188f37b<br>experiment civ4-rag-model-serving"]
+        REG["UC model version 1 READY<br>workspace.gcivilization.civ4_rag_model<br>tags link to eval run 92a0225f"]
+        AL["alias @champion"]
+        SEC["secret scope civ4_rag_serving<br>DATABRICKS_TOKEN secret-backed env var"]
+        DEP["civ4_rag_endpoint<br>serverless CPU Small, scale-to-zero"]
+        TEST["04_inference_testing<br>10/10 scenarios PASS"]
+        PYF --> LOG --> REG --> AL --> DEP
+        SEC --> DEP
+        DEP --> TEST
+    end
+
+    SM -->|"best validated config"| PYF
+    TEST --> LIVE["Live inference<br>POST /serving-endpoints/civ4_rag_endpoint/invocations"]

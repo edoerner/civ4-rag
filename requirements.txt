@@ -1,0 +1,17 @@
+# Third-party Python dependencies for the Civ4 RAG project.
+# Verified against the actual imports in this repository (Sprint 7 audit, 2026-11-06):
+#   - pypdf is used by 02_processing/01_extract_and_clean (PDF text extraction).
+#     It is NOT preinstalled on Databricks Free Edition serverless compute —
+#     install per session with `pip install pypdf`.
+#   - mlflow / mlflow.deployments / mlflow.genai (judges, 05_evaluation) — the
+#     mlflow.genai judges require mlflow >= 3.0.
+#   - databricks-sdk (WorkspaceClient: Vector Search, secrets, serving).
+#   - pandas (model I/O handling in 06_model_serving).
+# The serving artifact's dependency floors (validated with mlflow 3.12.0 /
+# databricks-sdk 0.122.0 / pandas 2.3.3) match the lines below.
+# pyspark and dbutils are provided by the Databricks runtime and are not listed.
+
+pypdf
+mlflow>=3.0
+databricks-sdk>=0.122.0
+pandas>=2.0

@@ -216,3 +216,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- civ4-rag project rules (Sprint 7) ---
+# Source strategy guides are copyrighted civfanatics.com content and must
+# never be committed to this repository (see README, Data Sources).
+*.pdf
+civ4_strategy_metadata.csv
+
+# Databricks local artifacts
+.dbutils/
+.databricks/
